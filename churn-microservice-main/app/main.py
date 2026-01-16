@@ -1,9 +1,12 @@
-from app.preprocessing import lowercase_df, lowercase_dict_values
-from fastapi import FastAPI, HTTPException
+from app.preprocessing import lowercase_df
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from app.schemas import ChurnInput
 from app.model import model_service
 import pandas as pd
+import traceback
 
 app = FastAPI(
     title="Netflix Churn Prediction API",
@@ -26,10 +29,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Handler para errores de validación (422)
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Captura errores de validación y muestra información detallada
+    para facilitar el debugging
+    """
+    print("❌ ERROR DE VALIDACIÓN:")
+    print(f"Errores: {exc.errors()}")
+    print(f"Body recibido: {exc.body}")
+
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": exc.errors(),
+            "message": "Los datos enviados no cumplen con el formato esperado",
+            "body_received": exc.body
+        }
+    )
+
 CSV_PATH = "clientes_limpio.csv"
 
 def load_csv():
     return pd.read_csv(CSV_PATH)
+
+@app.get("/")
+def root():
+    """Endpoint raíz para verificar que la API está funcionando"""
+    return {
+        "message": "Netflix Churn Prediction API",
+        "version": "1.0.0",
+        "status": "online"
+    }
 
 @app.get("/item/{item_id}")
 def get_item(item_id: str):
@@ -62,15 +94,55 @@ def get_all_items():
 
 @app.post("/predict")
 def predict(data: ChurnInput):
+    """
+    Predice si un cliente va a abandonar el servicio (churn).
+    Los datos ya vienen validados y en minúsculas gracias al schema.
+    """
     try:
-        data = lowercase_dict_values(data.dict())
-        df = pd.DataFrame([data])
+        print("📥 Datos recibidos y validados:", data.dict())
+
+        # Ya NO necesitamos lowercase_dict_values()
+        # porque el validator del schema ya lo hace
+        df = pd.DataFrame([data.dict()])
+        print("✅ DataFrame creado exitosamente")
+
         result = model_service.predict(df)
+        print("✅ Predicción realizada:", result)
 
         return result
 
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        print("❌ ERROR EN PREDICCIÓN:")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al realizar la predicción: {str(exc)}"
+        )
+
+
+@app.post("/predict/debug")
+async def predict_debug(request: Request):
+    """
+    Endpoint temporal para debugging.
+    Muestra exactamente qué datos están llegando al servidor.
+    """
+    try:
+        body = await request.json()
+        print("📦 Datos RAW recibidos:", body)
+        print("📋 Tipos de datos:", {k: type(v).__name__ for k, v in body.items()})
+
+        return {
+            "status": "success",
+            "message": "Datos recibidos correctamente",
+            "data_received": body,
+            "data_types": {k: type(v).__name__ for k, v in body.items()}
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
 
 @app.get("/item/predictions/{item_id}")
 def get_items_predictions(item_id: str):
@@ -88,7 +160,12 @@ def get_items_predictions(item_id: str):
     df_pred = result[["age", "gender", "subscription_type", "watch_hours", "region","number_of_profiles", "payment_method", "device"]]
     df_pred = lowercase_df(df_pred)
     result_pred = model_service.predict(df_pred)
-    return {"status": "success", 'data': result.to_dict(orient='records'), 'prediction': result_pred}
+
+    return {
+        "status": "success",
+        "data": result.to_dict(orient='records'),
+        "prediction": result_pred
+    }
 
 
 @app.get("/probability/age")
