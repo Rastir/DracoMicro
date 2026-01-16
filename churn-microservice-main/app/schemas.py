@@ -5,5 +5,7 @@ class ChurnInput(BaseModel):
     gender: str
     subscription_type: str
     watch_hours: float
-    last_login_days: int
     region: str
+    number_of_profiles: int
+    payment_method: str
+    device: str

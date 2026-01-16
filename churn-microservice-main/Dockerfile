@@ -8,7 +8,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
-COPY model.joblib ./model.joblib
+COPY rf_optimized.joblib ./rf_optimized.joblib
 COPY model_columns.joblib ./model_columns.joblib
 COPY clientes_limpio.csv ./clientes_limpio.csv
 COPY rf_best.joblib ./rf_best.joblib
